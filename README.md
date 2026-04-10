@@ -13,14 +13,13 @@ On the rented box:
 ```bash
 git clone https://github.com/tsg162/GPUSpotCheck.git
 cd GPUSpotCheck
-pip install torch
 python gpu_spot_check.py
 ```
 
 One-liner (clone + run):
 
 ```bash
-git clone https://github.com/tsg162/GPUSpotCheck.git && cd GPUSpotCheck && pip install torch && python gpu_spot_check.py
+git clone https://github.com/tsg162/GPUSpotCheck.git && cd GPUSpotCheck && python gpu_spot_check.py
 ```
 
 No-clone one-shot (fetch the script and run it directly):
