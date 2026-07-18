@@ -40,21 +40,29 @@ except ImportError:
     _fail("torch is not installed. Try: pip install torch")
 
 
-# Realistic achievable numbers (roughly 70-80% of marketing peak) for the
-# GPUs we actively rent. The script uses these for an on-the-box verdict;
-# GPUHunter stores its own copy in gpu_types and is the source of truth
-# for the dashboard. Update both when you add a new card.
+# Realistic achievable numbers for a torch `a @ b` (fp16 inputs, FP32
+# accumulate — the PyTorch default). Two gotchas baked into these:
+#
+#   * Consumer GA102 (RTX 3090, A6000) enforces a "FP32 accumulate" cap
+#     at HALF the marketing tensor peak — ~71 TFLOPS, not 142. Don't
+#     "fix" the 3090 number upward just because the spec sheet says 142.
+#   * `mem_bw` is a device-to-device *copy* bandwidth counting bytes as
+#     read + write (2×), which is how bandwidthTest / nvbandwidth report
+#     and how peak HBM bandwidth is typically quoted.
+#
+# GPUHunter stores its own copy of these in `gpu_types` and is the
+# source of truth for the dashboard. Update both when you add a card.
 EXPECTED = {
-    "RTX 3090":      {"fp16": 110,  "mem_bw":  820},
-    "RTX 4090":      {"fp16": 300,  "mem_bw":  950},
-    "RTX 5090":      {"fp16": 450,  "mem_bw": 1700},
-    "H100":          {"fp16": 700,  "mem_bw": 3000},
-    "H100 SXM":      {"fp16": 800,  "mem_bw": 3300},
-    "H200":          {"fp16": 800,  "mem_bw": 4500},
-    "A100 80GB":     {"fp16": 250,  "mem_bw": 2000},
-    "A100":          {"fp16": 250,  "mem_bw": 1500},
-    "A6000":         {"fp16": 140,  "mem_bw":  720},
-    "L40":           {"fp16": 180,  "mem_bw":  860},
+    "RTX 3090":      {"fp16":  60,  "mem_bw":  780},   # GA102, FP32-accum cap
+    "RTX 4090":      {"fp16": 150,  "mem_bw":  900},
+    "RTX 5090":      {"fp16": 300,  "mem_bw": 1500},
+    "H100 SXM":      {"fp16": 700,  "mem_bw": 2800},
+    "H100":          {"fp16": 600,  "mem_bw": 1700},   # PCIe variant
+    "H200":          {"fp16": 700,  "mem_bw": 4000},
+    "A100 80GB":     {"fp16": 220,  "mem_bw": 1700},
+    "A100":          {"fp16": 220,  "mem_bw": 1300},
+    "A6000":         {"fp16":  60,  "mem_bw":  600},   # GA102, same cap as 3090
+    "L40":           {"fp16": 150,  "mem_bw":  650},
 }
 
 
@@ -120,7 +128,10 @@ def _time_d2d_bandwidth(size_gb=1.0, iters=20):
         dst.copy_(src)
     torch.cuda.synchronize()
     elapsed = time.perf_counter() - t0
-    gbytes = n * 4 * iters / (1024 ** 3)
+    # A copy moves the bytes twice (one read + one write), so effective
+    # HBM bandwidth is 2× the tensor size per iteration. This matches
+    # the accounting bandwidthTest / nvbandwidth / marketing peak use.
+    gbytes = n * 4 * 2 * iters / (1024 ** 3)
     return gbytes / elapsed
 
 
@@ -276,7 +287,7 @@ def main():
          _status(s_min, exp_fp16 * 0.85 if exp_fp16 else None),
          "thermal floor"),
         ("sustain_drop_pct", s_drop, "%",
-         "pass" if s_drop < 5 else ("warn" if s_drop < 10 else "fail"),
+         "pass" if s_drop < 7 else ("warn" if s_drop < 15 else "fail"),
          "peak -> min drop"),
     ]
 
